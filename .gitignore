@@ -3,6 +3,5 @@
 .bundle
 *.DS_Store
 *.swp
-dist/*
-!/dist/*.js
-!/dist/*.swf
+.ruby-gemset
+.ruby-version
