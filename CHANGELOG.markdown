@@ -1,5 +1,89 @@
 # Changelog
 
+## 2.2.0 (2014-04-14)
+
+No changes since 2.2.0-rc3, just changed the version number.
+
+## 2.2.0-rc3 (2014-03-26)
+
+[NEW] Added third argument to the bind method on event emitters to allow binding of context to callbacks
+
+[CHANGED] Changed the primary WebSocket fallback to WSS instead of HTTP
+
+[FIXED] Exception when aborting timers, which caused infinite connection loop on IE8
+
+## 2.2.0-rc2 (2014-02-25)
+
+[NEW] Dependency loader will retry fetching additional resources if they fail to load
+
+[CHANGED] Refactored internals to reduce main file size by over 1KB
+
+[CHANGED] Improved heartbeat handling for HTTP transports
+
+[CHANGED] Removed wssHost and httpsHost options, reverted to a single domain regardless of encryption
+
+[CHANGED] Added extra 1s to the cached transport timeout
+
+[CHANGED] Updated the stats protocol
+
+[FIXED] MozWebSocket is not assigned to WebSocket anymore
+
+[FIXED] Socket listeners are always unbound after closing the connection
+
+## 2.2.0-rc1 (2014-01-14)
+
+[NEW] XHR streaming and polling transports were extracted from SockJS
+
+[NEW] Reduced the number of roundtrips required by HTTP streaming and polling transports for connecting from 3 to 1
+
+[NEW] Refactored the connection strategy to be faster and more reliable for clients using HTTP
+
+[NEW] Added new options - `wssHost` and `httpsHost` for encrypted connections
+
+[NEW] HTTP streaming and polling are now supported on Opera
+
+[CHANGED] Reduced the size of sockjs.js
+
+[FIXED] Issue with SockJS streaming not being able to reconnect
+
+## 2.1.6 (2014-01-09)
+
+[NEW] Ping on offline events to detect disconnections quicker
+
+[CHANGED] Added an exception when handshake does not contain the activity timeout
+
+[FIXED] Encrypted transports not being cached correctly
+
+## 2.1.5 (2013-12-16)
+
+[NEW] Server can suggest a lower activity timeout in the handshake
+
+[CHANGED] Updated the protocol to version 7
+
+[CHANGED] Transports are cached separately for encrypted connections
+
+[CHANGED] Updated the stats protocol
+
+[FIXED] Removed the `Protocol` variable leaking into the global scope
+
+[FIXED] Flash check was occasionally raising exceptions on old Firefox releases
+
+## 2.1.4 (2013-11-26)
+
+[NEW] Added the `Pusher.prototype.allChannels` method
+
+[NEW] Implemented the `enabledTransports` option
+
+[NEW] Implemented the `disabledTransports` option
+
+[CHANGED] Connections are not closed anymore after receiving an offline event
+
+[CHANGED] Connections are still attempted, even if the browser indicates it's offline
+
+[CHANGED] When not connected, an online event will trigger a new connection attempt immediately
+
+[CHANGED] Updated the stats protocol
+
 ## 2.1.3 (2013-10-21)
 
 [CHANGED] Updated the json2 library

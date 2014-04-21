@@ -13,8 +13,9 @@
    * - initialized - initial state, never transitioned to
    * - connecting - connection is being established
    * - connected - connection has been fully established
-   * - disconnected - on requested disconnection or before reconnecting
+   * - disconnected - on requested disconnection
    * - unavailable - after connection timeout or when there's no network
+   * - failed - when the connection strategy is not supported
    *
    * Options:
    * - unavailableTimeout - time to transition to unavailable state
@@ -42,15 +43,14 @@
 
     Pusher.Network.bind("online", function() {
       self.timeline.info({ netinfo: "online" });
-      if (self.state === "unavailable") {
-        self.connect();
+      if (self.state === "connecting" || self.state === "unavailable") {
+        self.retryIn(0);
       }
     });
     Pusher.Network.bind("offline", function() {
       self.timeline.info({ netinfo: "offline" });
-      if (self.shouldRetry()) {
-        self.disconnect();
-        self.updateState("unavailable");
+      if (self.state === "connected") {
+        self.sendActivityCheck();
       }
     });
 
@@ -66,42 +66,16 @@
    * to find events emitted on connection attempts.
    */
   prototype.connect = function() {
-    var self = this;
-
-    if (self.connection) {
+    if (this.connection || this.runner) {
       return;
     }
-    if (self.state === "connecting") {
+    if (!this.strategy.isSupported()) {
+      this.updateState("failed");
       return;
     }
-
-    if (!self.strategy.isSupported()) {
-      self.updateState("failed");
-      return;
-    }
-    if (Pusher.Network.isOnline() === false) {
-      self.updateState("unavailable");
-      return;
-    }
-
-    self.updateState("connecting");
-
-    var callback = function(error, handshake) {
-      if (error) {
-        self.runner = self.strategy.connect(0, callback);
-      } else {
-        if (handshake.action === "error") {
-          self.timeline.error({ handshakeError: handshake.error });
-        } else {
-          // we don't support switching connections yet
-          self.runner.abort();
-          self.handshakeCallbacks[handshake.action](handshake);
-        }
-      }
-    };
-    self.runner = self.strategy.connect(0, callback);
-
-    self.setUnavailableTimer();
+    this.updateState("connecting");
+    this.startConnecting();
+    this.setUnavailableTimer();
   };
 
   /** Sends raw data.
@@ -133,22 +107,51 @@
 
   /** Closes the connection. */
   prototype.disconnect = function() {
-    if (this.runner) {
-      this.runner.abort();
-    }
-    this.clearRetryTimer();
-    this.clearUnavailableTimer();
-    this.stopActivityCheck();
+    this.disconnectInternally();
     this.updateState("disconnected");
-    // we're in disconnected state, so closing will not cause reconnecting
-    if (this.connection) {
-      this.connection.close();
-      this.abandonConnection();
-    }
   };
 
   prototype.isEncrypted = function() {
     return this.encrypted;
+  };
+
+  /** @private */
+  prototype.startConnecting = function() {
+    var self = this;
+    var callback = function(error, handshake) {
+      if (error) {
+        self.runner = self.strategy.connect(0, callback);
+      } else {
+        if (handshake.action === "error") {
+          self.emit("error", { type: "HandshakeError", error: handshake.error });
+          self.timeline.error({ handshakeError: handshake.error });
+        } else {
+          self.abortConnecting(); // we don't support switching connections yet
+          self.handshakeCallbacks[handshake.action](handshake);
+        }
+      }
+    };
+    self.runner = self.strategy.connect(0, callback);
+  };
+
+  /** @private */
+  prototype.abortConnecting = function() {
+    if (this.runner) {
+      this.runner.abort();
+      this.runner = null;
+    }
+  };
+
+  /** @private */
+  prototype.disconnectInternally = function() {
+    this.abortConnecting();
+    this.clearRetryTimer();
+    this.clearUnavailableTimer();
+    this.stopActivityCheck();
+    if (this.connection) {
+      var connection = this.abandonConnection();
+      connection.close();
+    }
   };
 
   /** @private */
@@ -168,7 +171,7 @@
       self.emit("connecting_in", Math.round(delay / 1000));
     }
     self.retryTimer = new Pusher.Timer(delay || 0, function() {
-      self.disconnect();
+      self.disconnectInternally();
       self.connect();
     });
   };
@@ -177,6 +180,7 @@
   prototype.clearRetryTimer = function() {
     if (this.retryTimer) {
       this.retryTimer.ensureAborted();
+      this.retryTimer = null;
     }
   };
 
@@ -199,25 +203,29 @@
   };
 
   /** @private */
+  prototype.sendActivityCheck = function() {
+    var self = this;
+    self.stopActivityCheck();
+    self.connection.ping();
+    // wait for pong response
+    self.activityTimer = new Pusher.Timer(
+      self.options.pongTimeout,
+      function() {
+        self.timeline.error({ pong_timed_out: self.options.pongTimeout });
+        self.retryIn(0);
+      }
+    );
+  };
+
+  /** @private */
   prototype.resetActivityCheck = function() {
-    this.stopActivityCheck();
+    var self = this;
+    self.stopActivityCheck();
     // send ping after inactivity
-    if (!this.connection.supportsPing()) {
-      var self = this;
-      self.activityTimer = new Pusher.Timer(
-        self.options.activityTimeout,
-        function() {
-          self.send_event('pusher:ping', {});
-          // wait for pong response
-          self.activityTimer = new Pusher.Timer(
-            self.options.pongTimeout,
-            function() {
-              self.timeline.error({ pong_timed_out: self.options.pongTimeout });
-              self.connection.close();
-            }
-          );
-        }
-      );
+    if (!self.connection.handlesActivityChecks()) {
+      self.activityTimer = new Pusher.Timer(self.activityTimeout, function() {
+        self.sendActivityCheck();
+      });
     }
   };
 
@@ -240,8 +248,8 @@
       ping: function() {
         self.send_event('pusher:pong', {});
       },
-      ping_request: function() {
-        self.send_event('pusher:ping', {});
+      activity: function() {
+        self.resetActivityCheck();
       },
       error: function(error) {
         // just emit error to user - socket will already be closed by browser
@@ -261,11 +269,15 @@
     var self = this;
     return Pusher.Util.extend({}, errorCallbacks, {
       connected: function(handshake) {
+        self.activityTimeout = Math.min(
+          self.options.activityTimeout,
+          handshake.activityTimeout,
+          handshake.connection.activityTimeout || Infinity
+        );
         self.clearUnavailableTimer();
         self.setConnection(handshake.connection);
         self.socket_id = self.connection.id;
-        self.timeline.info({ socket_id: self.socket_id });
-        self.updateState("connected");
+        self.updateState("connected", { socket_id: self.socket_id });
       }
     });
   };
@@ -318,19 +330,18 @@
     for (var event in this.connectionCallbacks) {
       this.connection.unbind(event, this.connectionCallbacks[event]);
     }
+    var connection = this.connection;
     this.connection = null;
+    return connection;
   };
 
   /** @private */
   prototype.updateState = function(newState, data) {
     var previousState = this.state;
-
     this.state = newState;
-    // Only emit when the state changes
     if (previousState !== newState) {
       Pusher.debug('State changed', previousState + ' -> ' + newState);
-
-      this.timeline.info({ state: newState });
+      this.timeline.info({ state: newState, params: data });
       this.emit('state_change', { previous: previousState, current: newState });
       this.emit(newState, data);
     }

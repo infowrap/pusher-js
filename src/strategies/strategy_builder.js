@@ -15,7 +15,28 @@
   var transports = {
     ws: Pusher.WSTransport,
     flash: Pusher.FlashTransport,
-    sockjs: Pusher.SockJSTransport
+    sockjs: Pusher.SockJSTransport,
+    xhr_streaming: Pusher.XHRStreamingTransport,
+    xdr_streaming: Pusher.XDRStreamingTransport,
+    xhr_polling: Pusher.XHRPollingTransport,
+    xdr_polling: Pusher.XDRPollingTransport
+  };
+
+  var UnsupportedStrategy = {
+    isSupported: function() {
+      return false;
+    },
+    connect: function(_, callback) {
+      var deferred = Pusher.Util.defer(function() {
+        callback(new Pusher.Errors.UnsupportedStrategy());
+      });
+      return {
+        abort: function() {
+          deferred.ensureAborted();
+        },
+        forceMinPriority: function() {}
+      };
+    }
   };
 
   // DSL bindings
@@ -27,6 +48,10 @@
   }
 
   var globalContext = {
+    extend: function(context, first, second) {
+      return [Pusher.Util.extend({}, first, second), context];
+    },
+
     def: function(context, name, value) {
       if (context[name] !== undefined) {
         throw "Redefining symbol " + name;
@@ -40,19 +65,31 @@
       if (!transportClass) {
         throw new Pusher.Errors.UnsupportedTransport(type);
       }
-      var transportOptions = Pusher.Util.extend({}, {
-        key: context.key,
-        encrypted: context.encrypted,
-        timeline: context.timeline,
-        disableFlash: context.disableFlash,
-        ignoreNullOrigin: context.ignoreNullOrigin
-      }, options);
-      if (manager) {
-        transportClass = manager.getAssistant(transportClass);
+
+      var enabled =
+        (!context.enabledTransports ||
+          Pusher.Util.arrayIndexOf(context.enabledTransports, name) !== -1) &&
+        (!context.disabledTransports ||
+          Pusher.Util.arrayIndexOf(context.disabledTransports, name) === -1) &&
+        (name !== "flash" || context.disableFlash !== true);
+
+      var transport;
+      if (enabled) {
+        transport = new Pusher.TransportStrategy(
+          name,
+          priority,
+          manager ? manager.getAssistant(transportClass) : transportClass,
+          Pusher.Util.extend({
+            key: context.key,
+            encrypted: context.encrypted,
+            timeline: context.timeline,
+            ignoreNullOrigin: context.ignoreNullOrigin
+          }, options)
+        );
+      } else {
+        transport = UnsupportedStrategy;
       }
-      var transport = new Pusher.TransportStrategy(
-        name, priority, transportClass, transportOptions
-      );
+
       var newContext = context.def(context, name, transport)[1];
       newContext.transports = context.transports || {};
       newContext.transports[name] = transport;
@@ -71,7 +108,8 @@
     cached: returnWithOriginalContext(function(context, ttl, strategy){
       return new Pusher.CachedStrategy(strategy, context.transports, {
         ttl: ttl,
-        timeline: context.timeline
+        timeline: context.timeline,
+        encrypted: context.encrypted
       });
     }),
 

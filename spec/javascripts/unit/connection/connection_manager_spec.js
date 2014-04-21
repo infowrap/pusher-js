@@ -36,7 +36,7 @@ describe("ConnectionManager", function() {
         return strategy;
       });
 
-      new Pusher.ConnectionManager("foo", {
+      var manager = new Pusher.ConnectionManager("foo", {
         getStrategy: getStrategy,
         timeline: timeline,
         activityTimeout: 3456,
@@ -273,7 +273,11 @@ describe("ConnectionManager", function() {
       manager.connect();
 
       connection.id = "123.456";
-      handshake = { action: "connected", connection: connection };
+      handshake = {
+        action: "connected",
+        connection: connection,
+        activityTimeout: 999999
+      };
       strategy._callback(null, handshake);
     });
 
@@ -329,8 +333,7 @@ describe("ConnectionManager", function() {
 
         jasmine.Clock.tick(10000);
         // if activity check had worked, it would have sent a ping message
-        expect(connection.send).not.toHaveBeenCalled();
-        expect(connection.send_event).not.toHaveBeenCalled();
+        expect(connection.ping).not.toHaveBeenCalled();
       });
 
       it("should stop emitting received messages", function() {
@@ -354,14 +357,6 @@ describe("ConnectionManager", function() {
         manager.bind("disconnected", onDisconnected);
 
         connection.emit("closed");
-      });
-
-      it("should emit 'disconnected' after 1s", function() {
-        jasmine.Clock.tick(999);
-        expect(onDisconnected).not.toHaveBeenCalled();
-
-        jasmine.Clock.tick(1);
-        expect(onDisconnected).toHaveBeenCalled();
       });
 
       it("should transition to 'connecting' after 1s", function() {
@@ -395,23 +390,17 @@ describe("ConnectionManager", function() {
     });
 
     describe("on activity timeout", function() {
-      it("should send a pusher:ping event", function() {
+      it("should send a ping", function() {
         jasmine.Clock.tick(3455);
-        expect(connection.send_event).not.toHaveBeenCalled();
+        expect(connection.ping).not.toHaveBeenCalled();
 
         jasmine.Clock.tick(1);
-        expect(connection.send_event)
-          .toHaveBeenCalledWith("pusher:ping", {}, undefined);
+        expect(connection.ping).toHaveBeenCalled();
 
         jasmine.Clock.tick(2344);
         expect(connection.close).not.toHaveBeenCalled();
 
-        connection.emit("pong");
-        connection.emit("message", {
-          event: "pusher:pong",
-          data: {}
-        });
-
+        connection.emit("activity");
         // pong received, connection should not get closed
         jasmine.Clock.tick(1000);
         expect(connection.close).not.toHaveBeenCalled();
@@ -442,57 +431,71 @@ describe("ConnectionManager", function() {
     describe("on ping", function() {
       it("should reply with a pusher:pong event", function() {
         connection.emit("ping");
-        expect(connection.send_event)
-          .toHaveBeenCalledWith("pusher:pong", {}, undefined);
+        expect(connection.send_event).toHaveBeenCalledWith(
+          "pusher:pong", {}, undefined
+        );
       });
     });
 
-    describe("on ping request", function() {
-      it("should send a pusher:ping event", function() {
-        connection.emit("ping_request");
-        expect(connection.send_event)
-          .toHaveBeenCalledWith("pusher:ping", {}, undefined);
+    describe("on offline event", function() {
+      it("should send an activity check and disconnect after no pong response", function() {
+        Pusher.Network.emit("offline");
+        expect(connection.ping).toHaveBeenCalled();
+
+        jasmine.Clock.tick(2344);
+        expect(manager.state).toEqual("connected");
+
+        jasmine.Clock.tick(1);
+        expect(manager.state).toEqual("connecting");
       });
     });
   });
 
-  describe("on network connection/disconnection", function() {
-    it("should transition to unavailable before connecting and browser is offline", function() {
-      Pusher.Network.isOnline.andReturn(false);
-
+  describe("after establishing a connection which handles activity checks by iself", function() {
+    beforeEach(function() {
       manager.connect();
-      expect(manager.state).toEqual("unavailable");
-      expect(strategy.connect).not.toHaveBeenCalled();
+      connection.id = "123.456";
+      connection.handlesActivityChecks.andReturn(true);
+      strategy._callback(null, {
+        action: "connected",
+        connection: connection,
+        activityTimeout: 999999
+      });
     });
 
-    it("should transition to unavailable when connecting and browser goes offline", function() {
+    describe("on activity timeout", function() {
+      it("should not send a ping or close a connection", function() {
+        jasmine.Clock.tick(10000);
+        expect(connection.ping).not.toHaveBeenCalled();
+        expect(connection.close).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe("on online event", function() {
+    it("should retry when in 'connecting' state", function() {
       manager.connect();
+      expect(strategy.connect.calls.length).toEqual(1);
+
+      Pusher.Network.emit("online");
+      expect(strategy.connect.calls.length).toEqual(1);
       expect(manager.state).toEqual("connecting");
 
-      Pusher.Network.isOnline.andReturn(false);
-      Pusher.Network.emit("offline");
-
-      expect(manager.state).toEqual("unavailable");
+      jasmine.Clock.tick(1);
+      expect(strategy.connect.calls.length).toEqual(2);
     });
 
-    it("should transition to unavailable when connected and browser goes offline", function() {
+    it("should retry when in 'unavailable' state", function() {
       manager.connect();
-      strategy.emit("open", {});
+      expect(strategy.connect.calls.length).toEqual(1);
 
-      Pusher.Network.isOnline.andReturn(false);
-      Pusher.Network.emit("offline");
-
+      jasmine.Clock.tick(1234);
+      expect(strategy.connect.calls.length).toEqual(1);
       expect(manager.state).toEqual("unavailable");
-    });
-
-    it("should try connecting when unavailable browser goes back online", function() {
-      Pusher.Network.isOnline.andReturn(false);
-      manager.connect();
-      Pusher.Network.isOnline.andReturn(true);
       Pusher.Network.emit("online");
 
-      expect(manager.state).toEqual("connecting");
-      expect(strategy.connect).toHaveBeenCalled();
+      jasmine.Clock.tick(1);
+      expect(strategy.connect.calls.length).toEqual(2);
     });
   });
 
@@ -517,6 +520,64 @@ describe("ConnectionManager", function() {
 
       manager.connect();
       expect(onFailed).toHaveBeenCalled();
+    });
+  });
+
+  describe("with adjusted activity timeouts", function() {
+    var handshake;
+    var onConnected;
+
+    beforeEach(function() {
+      manager.connect();
+      connection.id = "123.456";
+    });
+
+    it("should use the activity timeout value from the connection, if it's the lowest", function() {
+      connection.activityTimeout = 2666;
+      handshake = {
+        action: "connected",
+        connection: connection,
+        activityTimeout: 2667
+      };
+      strategy._callback(null, handshake);
+
+      jasmine.Clock.tick(2665);
+      expect(connection.send_event).not.toHaveBeenCalled();
+
+      jasmine.Clock.tick(1);
+      expect(connection.ping).toHaveBeenCalled();
+    });
+
+    it("should use the handshake activity timeout value, if it's the lowest", function() {
+      connection.activityTimeout = 3455;
+      handshake = {
+        action: "connected",
+        connection: connection,
+        activityTimeout: 3400
+      };
+      strategy._callback(null, handshake);
+
+      jasmine.Clock.tick(3399);
+      expect(connection.send_event).not.toHaveBeenCalled();
+
+      jasmine.Clock.tick(1);
+      expect(connection.ping).toHaveBeenCalled();
+    });
+
+    it("should use the default activity timeout value, if it's the lowest", function() {
+      connection.activityTimeout = 5555;
+      handshake = {
+        action: "connected",
+        connection: connection,
+        activityTimeout: 3500
+      };
+      strategy._callback(null, handshake);
+
+      jasmine.Clock.tick(3455);
+      expect(connection.send_event).not.toHaveBeenCalled();
+
+      jasmine.Clock.tick(1);
+      expect(connection.ping).toHaveBeenCalled();
     });
   });
 });

@@ -20,7 +20,7 @@
    */
   prototype.isSupported = function() {
     return this.transport.isSupported({
-      disableFlash: !!this.options.disableFlash
+      encrypted: this.options.encrypted
     });
   };
 
@@ -30,7 +30,7 @@
    * @return {Object} strategy runner
    */
   prototype.connect = function(minPriority, callback) {
-    if (!this.transport.isSupported()) {
+    if (!this.isSupported()) {
       return failAttempt(new Pusher.Errors.UnsupportedStrategy(), callback);
     } else if (this.priority < minPriority) {
       return failAttempt(new Pusher.Errors.TransportPriorityTooLow(), callback);
@@ -107,7 +107,7 @@
   };
 
   function failAttempt(error, callback) {
-    new Pusher.Timer(0, function() {
+    Pusher.Util.defer(function() {
       callback(error);
     });
     return {

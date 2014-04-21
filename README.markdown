@@ -44,6 +44,17 @@ Endpoint on your server that will return the authentication signature needed for
 
 Defines how the authentication endpoint, defined using authEndpoint, will be called. There are two options available: `ajax` and `jsonp`.
 
+#### `auth` (Hash)
+
+Allows passing additional data to authorizers. Supports query string params and headers (AJAX only). For example, following will pass `foo=bar` via the query string and `baz: boo` via headers:
+
+    var pusher = new Pusher(API_KEY, {
+      auth: {
+        params: { foo: "bar" },
+        headers: { baz: "boo" }
+      }
+    });
+
 #### `cluster` (String)
 
 Allows connecting to a different datacenter by setting up correct hostnames and ports for the connection.
@@ -59,6 +70,26 @@ Disables Flash, leaving only WebSockets and HTTP fallback.
 
 Disables stats collection, so that connection metrics are not submitted to Pusher’s servers.
 
+#### `enabledTransports` (Array)
+
+Specifies which transports should be used by Pusher to establish a connection. Useful for applications running in controlled, well-behaving environments. Available transports: `ws`, `flash`, `sockjs`. Additional transports may be added in the future and without adding them to this list, they will be disabled.
+
+    // will only use WebSockets
+    var pusher = new Pusher(API_KEY, { enabledTransports: ["ws"] });
+
+#### `disabledTransports` (Array)
+
+Specified which transports must not be used by Pusher to establish a connection. This settings overwrites transports whitelisted via the `enabledTransports` options. Available transports: `ws`, `flash`, `sockjs`. Additional transports may be added in the future and without adding them to this list, they will be enabled.
+
+    // will use all transports except for flash
+    var pusher = new Pusher(API_KEY, { disabledTransports: ["flash"] });
+
+    // will only use WebSockets
+    var pusher = new Pusher(API_KEY, {
+      enabledTransports: ["ws", "flash"],
+      disabledTransports: ["flash"]
+    });
+
 #### `wsHost`, `wsPort`, `wssPort`, `httpHost`, `httpPort`, `httpsPort`
 
 These can be changed to point to alternative Pusher URLs (used internally for our staging server).
@@ -66,6 +97,14 @@ These can be changed to point to alternative Pusher URLs (used internally for ou
 #### `ignoreNullOrigin` (Boolean)
 
 Ignores null origin checks for HTTP fallbacks. Use with care, it should be disabled only if necessary (i.e. PhoneGap).
+
+#### `activityTimeout` (Integer)
+
+After this time (in miliseconds) without any messages received from the server, a ping message will be sent to check if the connection is still working. Default value is is supplied by the server, low values will result in unnecessary traffic.
+
+#### `pongTimeout` (Integer)
+
+Time before the connection is terminated after sending a ping message. Default is 30000 (30s). Low values will cause false disconnections, if latency is high.
 
 ## Connection
 
@@ -101,6 +140,16 @@ It is possible to access channels by name, through the `channel` function:
 
     channel = socket.channel('private-my-channel');
 
+It is possible to access all subscribed channels through the `allChannels` function:
+
+    var channels = socket.allChannels();
+    console.group('Pusher - subscribed to:');
+    for (var i = 0; i < channels.length; i++) {
+        var channel = channels[i];
+        console.log(channel.name);
+    }
+    console.groupEnd();
+
 ## Binding to events
 
 Events can be bound to at 2 levels, the global, and per channel. They take a very similar form to the way events are handled in jQuery.
@@ -119,7 +168,7 @@ You can attach behaviour to these events regardless of the channel the event is 
 
 ### Per-channel events
 
-These are bound to a specific channel, and mean that you can reuse event names in different parts of you client application. The following might be an example of a stock tracking app where several channels are opened for different companies:
+These are bound to a specific channel, and mean that you can reuse event names in different parts of your client application. The following might be an example of a stock tracking app where several channels are opened for different companies:
 
     var socket = new Pusher('MY_API_KEY');
     var channel = socket.subscribe('APPL');
@@ -128,6 +177,27 @@ These are bound to a specific channel, and mean that you can reuse event names i
         // add new price into the APPL widget
       }
     );
+
+### Bind event handler with optional context
+
+It is possible to provide a third, optional parameter that is used as the `this` value when calling a handler:
+
+    var context = { title: 'Pusher' };
+    var handler = function(){
+      console.log('My name is ' + this.title);
+    };
+    channel.bind('new-comment', handler, context);
+
+### Unbind event handlers
+
+Remove previously-bound handlers from an object. Only handlers that match all of the provided arguments (`eventName`, `handler` or `context`) are removed:
+
+    channel.unbind('new-comment', handler); // removes just `handler` for the `new-comment` event
+    channel.unbind('new-comment'); // removes all handlers for the `new-comment` event
+    channel.unbind(null, handler); // removes `handler` for all events
+    channel.unbind(null, null, context); // removes all handlers for `context`
+    channel.unbind(); // removes all handlers on `channel`
+
 
 ### Binding to everything
 
@@ -169,6 +239,12 @@ Then after loading `pusher.js`, but before connecting, you need to overwrite the
       suffix: Pusher.dependency_suffix
     });
 
+## SockJS compatibility
+
+Most browsers have a limit of 6 simultaneous connections to a single domain, but Internet Explorer 6 and 7 have a limit of just 2. This means that you can only use a single Pusher connection in these browsers, because SockJS requires an HTTP connection for incoming data and another one for sending. Opening the second connection will break the first one as the client won't be able to respond to ping messages and get disconnected eventually.
+
+All other browsers work fine with two or three connections.
+
 ## Developing
 
 Ensure you have the submodules:
@@ -201,6 +277,16 @@ In order to build the minified versions:
     ENVIRONMENT=development rake build
 
 If you wish to host the javascript on your own server you need to change [:js][:host] in `config.yml` and then rebuild.
+
+## How to install Flash SDK
+
+Download [Flex 4 SDK](http://sourceforge.net/adobe/flexsdk/wiki/Download%20Flex%204/ - if it returns an swf file, open it in the browser and you'll be greeted by the downloader).
+
+Unzip the SDK and move it somewhere (e.g. `/usr/local/flex`, so that executables are in `/usr/local/flex/bin`) and add it to the path:
+
+    export PATH=/usr/local/flex/bin:$PATH
+
+Now scripts should be able to pick up all the tools needed to build Flash files.
 
 ## Building
 
@@ -281,7 +367,3 @@ Then start the server, run one of following commands:
     bin/karma                # runs both unit and integration tests
 
 All configured browsers will be automatically opened and will run all tests. Testacular also re-executes all specs on file changes. After you close the server, browsers will get shut down too.
-
-### Old framework
-
-There are still some tests in the old framework, though they will be removed in the future. Open `test/sane/index.html` and click run to execute the suite.

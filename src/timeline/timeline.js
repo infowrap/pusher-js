@@ -15,12 +15,9 @@
   Timeline.DEBUG = 7;
 
   prototype.log = function(level, event) {
-    if (this.options.level === undefined || level <= this.options.level) {
+    if (level <= this.options.level) {
       this.events.push(
-        Pusher.Util.extend({}, event, {
-          timestamp: Pusher.Util.now(),
-          level: level
-        })
+        Pusher.Util.extend({}, event, { timestamp: Pusher.Util.now() })
       );
       if (this.options.limit && this.events.length > this.options.limit) {
         this.events.shift();
@@ -47,23 +44,16 @@
   prototype.send = function(sendJSONP, callback) {
     var self = this;
 
-    if (Pusher.Network.isOnline() === false) {
-      return false;
-    }
-
-    var data = {};
-    if (self.sent === 0) {
-      data = Pusher.Util.extend({
-        key: self.key,
-        features: self.options.features,
-        version: self.options.version
-      }, self.options.params || {});
-    }
-    data.session = self.session;
-    data.timeline = self.events;
-    data = Pusher.Util.filterObject(data, function(v) {
-      return v !== undefined;
-    });
+    var data = Pusher.Util.extend({
+      session: self.session,
+      bundle: self.sent + 1,
+      key: self.key,
+      lib: "js",
+      version: self.options.version,
+      cluster: self.options.cluster,
+      features: self.options.features,
+      timeline: self.events
+    }, self.options.params);
 
     self.events = [];
     sendJSONP(data, function(error, result) {

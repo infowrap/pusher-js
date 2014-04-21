@@ -9,6 +9,7 @@
     this.strategy = strategy;
     this.transports = transports;
     this.ttl = options.ttl || 1800*1000;
+    this.encrypted = options.encrypted;
     this.timeline = options.timeline;
   }
   var prototype = CachedStrategy.prototype;
@@ -18,15 +19,20 @@
   };
 
   prototype.connect = function(minPriority, callback) {
-    var info = fetchTransportInfo();
+    var encrypted = this.encrypted;
+    var info = fetchTransportCache(encrypted);
 
     var strategies = [this.strategy];
     if (info && info.timestamp + this.ttl >= Pusher.Util.now()) {
       var transport = this.transports[info.transport];
       if (transport) {
-        this.timeline.info({ cached: true, transport: info.transport });
+        this.timeline.info({
+          cached: true,
+          transport: info.transport,
+          latency: info.latency
+        });
         strategies.push(new Pusher.SequentialStrategy([transport], {
-          timeout: info.latency * 2,
+          timeout: info.latency * 2 + 1000,
           failFast: true
         }));
       }
@@ -37,7 +43,7 @@
       minPriority,
       function cb(error, handshake) {
         if (error) {
-          flushTransportInfo();
+          flushTransportCache(encrypted);
           if (strategies.length > 0) {
             startTimestamp = Pusher.Util.now();
             runner = strategies.pop().connect(minPriority, cb);
@@ -45,8 +51,11 @@
             callback(error);
           }
         } else {
-          var latency = Pusher.Util.now() - startTimestamp;
-          storeTransportInfo(handshake.transport.name, latency);
+          storeTransportCache(
+            encrypted,
+            handshake.transport.name,
+            Pusher.Util.now() - startTimestamp
+          );
           callback(null, handshake);
         }
       }
@@ -65,26 +74,30 @@
     };
   };
 
-  function fetchTransportInfo() {
+  function getTransportCacheKey(encrypted) {
+    return "pusherTransport" + (encrypted ? "Encrypted" : "Unencrypted");
+  }
+
+  function fetchTransportCache(encrypted) {
     var storage = Pusher.Util.getLocalStorage();
     if (storage) {
       try {
-        var info = storage.pusherTransport;
-        if (info) {
-          return JSON.parse(info);
+        var serializedCache = storage[getTransportCacheKey(encrypted)];
+        if (serializedCache) {
+          return JSON.parse(serializedCache);
         }
       } catch (e) {
-        flushTransportInfo();
+        flushTransportCache(encrypted);
       }
     }
     return null;
   }
 
-  function storeTransportInfo(transport, latency) {
+  function storeTransportCache(encrypted, transport, latency) {
     var storage = Pusher.Util.getLocalStorage();
     if (storage) {
       try {
-        storage.pusherTransport = JSON.stringify({
+        storage[getTransportCacheKey(encrypted)] = JSON.stringify({
           timestamp: Pusher.Util.now(),
           transport: transport,
           latency: latency
@@ -95,13 +108,13 @@
     }
   }
 
-  function flushTransportInfo() {
+  function flushTransportCache(encrypted) {
     var storage = Pusher.Util.getLocalStorage();
-    if (storage && storage.pusherTransport) {
+    if (storage) {
       try {
-        delete storage.pusherTransport;
+        delete storage[getTransportCacheKey(encrypted)];
       } catch (e) {
-        storage.pusherTransport = undefined;
+        // catch exceptions raised by localStorage
       }
     }
   }
