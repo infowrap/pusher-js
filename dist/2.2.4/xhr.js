@@ -1,8 +1,8 @@
 /*!
- * Pusher JavaScript Library v2.2.0
- * http://pusherapp.com/
+ * Pusher JavaScript Library v2.2.4
+ * http://pusher.com/
  *
- * Copyright 2013, Pusher
+ * Copyright 2014, Pusher
  * Released under the MIT licence.
  */
 
@@ -82,36 +82,33 @@
 ;(function() {
   var hooks = {
     getRequest: function(socket) {
-      var xdr = new window.XDomainRequest();
-      xdr.ontimeout = function() {
-        socket.emit("error", new Pusher.Errors.RequestTimedOut());
-        socket.close();
-      };
-      xdr.onerror = function(e) {
-        socket.emit("error", e);
-        socket.close();
-      };
-      xdr.onprogress = function() {
-        if (xdr.responseText && xdr.responseText.length > 0) {
-          socket.onChunk(200, xdr.responseText);
+      var xhr = new window.XMLHttpRequest();
+      xhr.onreadystatechange = xhr.onprogress = function() {
+        switch (xhr.readyState) {
+          case 3:
+            if (xhr.responseText && xhr.responseText.length > 0) {
+              socket.onChunk(xhr.status, xhr.responseText);
+            }
+            break;
+          case 4:
+            // this happens only on errors, never after calling close
+            if (xhr.responseText && xhr.responseText.length > 0) {
+              socket.onChunk(xhr.status, xhr.responseText);
+            }
+            socket.emit("finished", xhr.status);
+            socket.close();
+            break;
         }
       };
-      xdr.onload = function() {
-        if (xdr.responseText && xdr.responseText.length > 0) {
-          socket.onChunk(200, xdr.responseText);
-        }
-        socket.emit("finished", 200);
-        socket.close();
-      };
-      return xdr;
+      return xhr;
     },
-    abortRequest: function(xdr) {
-      xdr.ontimeout = xdr.onerror = xdr.onprogress = xdr.onload = null;
-      xdr.abort();
+    abortRequest: function(xhr) {
+      xhr.onreadystatechange = null;
+      xhr.abort();
     }
   };
 
-  Pusher.HTTP.getXDR = function(method, url) {
+  Pusher.HTTP.getXHR = function(method, url) {
     return new Pusher.HTTP.Request(hooks, method, url);
   };
 }).call(this);
@@ -346,7 +343,7 @@
       socket.sendRaw("[]");
     },
     sendHeartbeat: function(socket) {
-      socket.sendRaw("h");
+      socket.sendRaw("[]");
     },
     onFinished: function(socket, status) {
       socket.onClose(1006, "Connection interrupted (" + status + ")", false);
@@ -367,7 +364,7 @@
       // next HTTP request will reset server's activity timer
     },
     sendHeartbeat: function(socket) {
-      socket.sendRaw("h");
+      socket.sendRaw("[]");
     },
     onFinished: function(socket, status) {
       if (status === 200) {

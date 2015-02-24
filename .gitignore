@@ -1,3 +1,5 @@
+/src/sockjs
+/src/web-socket-js
 /config/config.yml
 .rvmrc
 .bundle
