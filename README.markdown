@@ -203,6 +203,10 @@ Remove previously-bound handlers from an object. Only handlers that match all of
 
 It is possible to bind to all events at either the global or channel level by using the method `bind_all`. This is used for debugging, but may have other utilities.
 
+## Batching auth requests (aka multi-auth)
+
+Currently, pusher-js itself does not support authenticating multiple channels in one HTTP request. However, thanks to @dirkbonhomme you can use the [pusher-js-auth](https://github.com/dirkbonhomme/pusher-js-auth) plugin that buffers subscription requests and sends auth requests to your endpoint in batches.
+
 ## Default events
 
 There are a number of events which are used internally, but can also be of use elsewhere:
@@ -356,9 +360,9 @@ There's also a JSHint watch, which will validate JS files on save.
 
 #### Run karma
 
-Testacular also runs tests automatically, but it uses actual browsers to execute them. First, install karma npm module
+Testacular also runs tests automatically, but it uses actual browsers to execute them. First, install karma npm modules
 
-    npm install -g karma
+    npm install -g karma karma-coverage karma-jasmine karma-chrome-launcher karma-firefox-launcher karma-opera-launcher karma-safari-launcher
 
 Then start the server, run one of following commands:
 

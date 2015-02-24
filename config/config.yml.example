@@ -9,7 +9,7 @@
   :js:
     :cdn:
       :http: http://js.staging.pusher.com/
-      :https: https://d14dz7d59i920.cloudfront.net/
+      :https: https://pusher-js-staging-pusher.netdna-ssl.com
   :s3:
     :cf_distribution_id: <YOUR AWS CLOUD FRONT DISTRIBUTION ID>
     :bucket: com.pusher.staging.js
@@ -20,7 +20,7 @@
   :js:
     :cdn:
       :http: http://js.pusher.com/
-      :https: https://d3dy5gmtp8yhk7.cloudfront.net/
+      :https: https://js.pusher.com/
   :s3:
     :cf_distribution_id: <YOUR AWS CLOUD FRONT DISTRIBUTION ID>
     :bucket: com.pusher.js

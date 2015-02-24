@@ -1,5 +1,25 @@
 # Changelog
 
+## 2.2.4 (2015-02-13)
+
+[FIXED] Dependency loader not using HTTPS for encrypted connections on pages loaded via HTTP
+
+## 2.2.3 (2014-09-10)
+
+[FIXED] Wrong encoding of HTTP heartbeats
+
+[FIXED] Missing httpPath parameter for sockjs transport
+
+[FIXED] Auth query strings no longer start with `&`
+
+## 2.2.2 (2014-06-09)
+
+[CHANGED] Updated the HTTPS CDN URL to `https://js.pusher.com`
+
+## 2.2.1 (2014-05-28)
+
+[FIXED] Exception triggered by ping being sent when disconnected
+
 ## 2.2.0 (2014-04-14)
 
 No changes since 2.2.0-rc3, just changed the version number.

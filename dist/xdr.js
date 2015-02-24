@@ -1,8 +1,8 @@
 /*!
- * Pusher JavaScript Library v2.2.0
- * http://pusherapp.com/
+ * Pusher JavaScript Library v2.2.4
+ * http://pusher.com/
  *
- * Copyright 2013, Pusher
+ * Copyright 2014, Pusher
  * Released under the MIT licence.
  */
 
@@ -346,7 +346,7 @@
       socket.sendRaw("[]");
     },
     sendHeartbeat: function(socket) {
-      socket.sendRaw("h");
+      socket.sendRaw("[]");
     },
     onFinished: function(socket, status) {
       socket.onClose(1006, "Connection interrupted (" + status + ")", false);
@@ -367,7 +367,7 @@
       // next HTTP request will reset server's activity timer
     },
     sendHeartbeat: function(socket) {
-      socket.sendRaw("h");
+      socket.sendRaw("[]");
     },
     onFinished: function(socket, status) {
       if (status === 200) {

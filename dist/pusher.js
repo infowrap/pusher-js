@@ -1,8 +1,8 @@
 /*!
- * Pusher JavaScript Library v2.2.0
- * http://pusherapp.com/
+ * Pusher JavaScript Library v2.2.4
+ * http://pusher.com/
  *
- * Copyright 2013, Pusher
+ * Copyright 2014, Pusher
  * Released under the MIT licence.
  */
 
@@ -626,7 +626,7 @@
 }).call(this);
 
 ;(function() {
-  Pusher.VERSION = '2.2.0';
+  Pusher.VERSION = '2.2.4';
   Pusher.PROTOCOL = 7;
 
   // DEPRECATED: WS connection parameters
@@ -648,7 +648,7 @@
   Pusher.unavailable_timeout = 10000;
   // CDN configuration
   Pusher.cdn_http = 'http://js.pusher.com/';
-  Pusher.cdn_https = 'https://d3dy5gmtp8yhk7.cloudfront.net/';
+  Pusher.cdn_https = 'https://js.pusher.com/';
   Pusher.dependency_suffix = '';
 
   Pusher.getDefaultStrategy = function(config) {
@@ -678,7 +678,8 @@
       }]],
       [":def", "sockjs_options", {
         hostUnencrypted: config.httpHost + ":" + config.httpPort,
-        hostEncrypted: config.httpHost + ":" + config.httpsPort
+        hostEncrypted: config.httpHost + ":" + config.httpsPort,
+        httpPath: config.httpPath
       }],
       [":def", "timeouts", {
         loop: true,
@@ -1086,7 +1087,7 @@
    * @param  {String} name
    * @param  {Function} callback
    */
-  prototype.load = function(name, callback) {
+  prototype.load = function(name, options, callback) {
     var self = this;
 
     if (self.loading[name] && self.loading[name].length > 0) {
@@ -1094,7 +1095,7 @@
     } else {
       self.loading[name] = [callback];
 
-      var request = new Pusher.ScriptRequest(self.getPath(name));
+      var request = new Pusher.ScriptRequest(self.getPath(name, options));
       var receiver = self.receivers.create(function(error) {
         self.receivers.remove(receiver);
 
@@ -1176,7 +1177,7 @@
   }
 
   if (!window.JSON) {
-    Pusher.Dependencies.load("json2", initializeOnDocumentBody);
+    Pusher.Dependencies.load("json2", {}, initializeOnDocumentBody);
   } else {
     initializeOnDocumentBody();
   }
@@ -2078,25 +2079,29 @@
     }));
 
     if (self.hooks.beforeInitialize) {
-      self.hooks.beforeInitialize();
+      self.hooks.beforeInitialize.call(self);
     }
 
     if (self.hooks.isInitialized()) {
       self.changeState("initialized");
     } else if (self.hooks.file) {
       self.changeState("initializing");
-      Pusher.Dependencies.load(self.hooks.file, function(error, callback) {
-        if (self.hooks.isInitialized()) {
-          self.changeState("initialized");
-          callback(true);
-        } else {
-          if (error) {
-            self.onError(error);
+      Pusher.Dependencies.load(
+        self.hooks.file,
+        { encrypted: self.options.encrypted },
+        function(error, callback) {
+          if (self.hooks.isInitialized()) {
+            self.changeState("initialized");
+            callback(true);
+          } else {
+            if (error) {
+              self.onError(error);
+            }
+            self.onClose();
+            callback(false);
           }
-          self.onClose();
-          callback(false);
         }
-      });
+      );
     } else {
       self.onClose();
     }
@@ -2366,7 +2371,8 @@
       if (window.WEB_SOCKET_SUPPRESS_CROSS_DOMAIN_SWF_ERROR === undefined) {
         window.WEB_SOCKET_SUPPRESS_CROSS_DOMAIN_SWF_ERROR = true;
       }
-      window.WEB_SOCKET_SWF_LOCATION = Pusher.Dependencies.getRoot() +
+      window.WEB_SOCKET_SWF_LOCATION =
+        Pusher.Dependencies.getRoot({ encrypted: this.options.encrypted }) +
         "/WebSocketMain.swf";
     },
     isInitialized: function() {
@@ -3223,7 +3229,7 @@
     });
     Pusher.Network.bind("offline", function() {
       self.timeline.info({ netinfo: "offline" });
-      if (self.state === "connected") {
+      if (self.connection) {
         self.sendActivityCheck();
       }
     });
@@ -3321,7 +3327,6 @@
     this.abortConnecting();
     this.clearRetryTimer();
     this.clearUnavailableTimer();
-    this.stopActivityCheck();
     if (this.connection) {
       var connection = this.abandonConnection();
       connection.close();
@@ -3501,6 +3506,7 @@
     if (!this.connection) {
       return;
     }
+    this.stopActivityCheck();
     for (var event in this.connectionCallbacks) {
       this.connection.unbind(event, this.connectionCallbacks[event]);
     }
@@ -3918,7 +3924,7 @@
 
   Pusher.Channel.Authorizer.prototype = {
     composeQuery: function(socketId) {
-      var query = '&socket_id=' + encodeURIComponent(socketId) +
+      var query = 'socket_id=' + encodeURIComponent(socketId) +
         '&channel_name=' + encodeURIComponent(this.channel.name);
 
       for(var i in this.authOptions.params) {
@@ -3999,6 +4005,7 @@
       script.src = this.options.authEndpoint +
         '?callback=' +
         encodeURIComponent(callback_name) +
+        '&' +
         this.composeQuery(socketId);
 
       var head = document.getElementsByTagName("head")[0] || document.documentElement;
